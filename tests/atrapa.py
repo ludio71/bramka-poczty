@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from email import message_from_bytes
+from email.policy import default
 
 from bramka.skrzynka import Mail, Tresc
 
@@ -72,6 +73,7 @@ class Atrapa:
     def wstaw(self, wiadomosc, message_id):
         self.wstawione.append(wiadomosc)
         id = max(self.maile, default=0) + 1
-        m = message_from_bytes(wiadomosc)
-        self.dodaj_mail(id, etykiety=("\\Inbox",), od=m["From"], temat=m["Subject"], tekst=m.get_payload(decode=True).decode())
+        m = message_from_bytes(wiadomosc, policy=default)
+        tekst = m.get_body(preferencelist=("plain",)).get_content()
+        self.dodaj_mail(id, etykiety=("\\Inbox",), od=m["From"], temat=m["Subject"], tekst=tekst)
         return id

@@ -23,7 +23,7 @@ Identyfikatory maili są tekstem: `X-GM-MSGID` przekracza 2⁵³, a klienci w Ja
 | `etykiety()` | etykiety użytkownika i dozwolone systemowe |
 | `etykietuj(ids, dodaj, usun)` | najwyżej 100 maili naraz |
 | `oznacz_przeczytane(ids, przeczytane)` | flaga `\Seen` |
-| `wstaw_podsumowanie(temat, tresc)` | wstawia do Odebranych maila od właściciela do właściciela, najwyżej 3 na przebieg. Pod treścią bramka sama dopisuje listę maili zarchiwizowanych w tym przebiegu, z linkami |
+| `wstaw_podsumowanie(temat, tresc)` | wstawia do Odebranych maila od właściciela do właściciela, najwyżej 3 na przebieg. Treść w Markdownie bramka wstawia jako HTML i jako zwykły tekst; surowy HTML z treści zostaje pokazany jako tekst. Pod treścią bramka sama dopisuje listę maili zarchiwizowanych w tym przebiegu, z linkami |
 
 ## Reguły etykiet
 

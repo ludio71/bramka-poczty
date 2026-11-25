@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from email import message_from_bytes
+from email.policy import default
+
 import pytest
 from atrapa import Atrapa
 
@@ -107,10 +110,42 @@ def test_podsumowanie_z_lista_zarchiwizowanych(b):
     b.etykietuj(P, ["102"], dodaj=["\\Inbox"])  # przywrócony, nie trafia na listę
     w = b.wstaw_podsumowanie(P, "Podsumowanie poczty", "## Najważniejsze\n\nNic pilnego.")
     assert w["zarchiwizowanych"] == 1
-    tekst = b.skrzynka.wstawione[0].decode()
-    assert "Mail 101" in tekst and "Mail 102" not in tekst
-    assert link(101) in tekst
-    assert "To: ja@example.com" in tekst
+    m = _wstawiony(b)
+    assert m["To"] == "ja@example.com"
+    for czesc in ("plain", "html"):
+        tekst = m.get_body(preferencelist=(czesc,)).get_content()
+        assert "Mail 101" in tekst and "Mail 102" not in tekst
+        assert link(101) in tekst
+
+
+def _wstawiony(b, n=0):
+    return message_from_bytes(b.skrzynka.wstawione[n], policy=default)
+
+
+def test_podsumowanie_html_z_markdownu(b):
+    b.wstaw_podsumowanie(P, "T", "## Najważniejsze\n\n- **pilne** [opis](https://example.com)\n\n| a | b |\n|---|---|\n| 1 | 2 |")
+    m = _wstawiony(b)
+    assert m.get_content_type() == "multipart/alternative"
+    tekst = m.get_body(preferencelist=("plain",)).get_content()
+    assert "## Najważniejsze" in tekst  # zwykły tekst bez zmian
+    strona = m.get_body(preferencelist=("html",)).get_content()
+    assert "<h2>Najważniejsze</h2>" in strona
+    assert "<strong>pilne</strong>" in strona
+    assert '<a href="https://example.com">opis</a>' in strona
+    assert "<table>" in strona
+
+
+def test_podsumowanie_html_bez_wstawek(b):
+    b.skrzynka.dodaj_mail(104, temat="[kliknij](https://zly.example) <b>x</b>")
+    b.etykietuj(P, ["104"], usun=["\\Inbox"])
+    b.wstaw_podsumowanie(P, "T", "<script>alert(1)</script> [z](javascript:alert(1))")
+    strona = _wstawiony(b).get_body(preferencelist=("html",)).get_content()
+    assert "<script>" not in strona and "&lt;script&gt;" in strona
+    assert 'href="javascript:' not in strona
+    # temat cudzego maila na liście zarchiwizowanych: tekst, nie link ani znacznik
+    assert 'href="https://zly.example"' not in strona
+    assert "&lt;b&gt;x&lt;/b&gt;" in strona
+    assert f'<a href="{link(104)}">' in strona
 
 
 def test_limit_podsumowan(b):
@@ -128,8 +163,8 @@ def test_podsumowanie_za_dlugie(b):
 
 def test_temat_bez_nowych_linii(b):
     b.wstaw_podsumowanie(P, "T\r\nBcc: obcy@example.com", "x")
-    tekst = b.skrzynka.wstawione[0].decode()
-    assert "\nBcc:" not in tekst
+    m = _wstawiony(b)
+    assert m["Bcc"] is None and m["Subject"] == "T Bcc: obcy@example.com"
 
 
 def test_dziennik_zapisuje_odczyty(b):

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import asdict
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import format_datetime, make_msgid
+
+from markdown_it import MarkdownIt
 
 from .dziennik import Dziennik
 from .reguly import Odmowa, sprawdz_etykiete
@@ -20,6 +23,10 @@ MAKS_PODSUMOWAN = 3
 MAKS_MAILI_WATKU = 100
 INBOX = "\\Inbox"
 PRZEBIEG = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+
+# Markdown podsumowania do HTML. Surowy HTML z treści nie przechodzi (zostaje pokazany jako tekst),
+# a markdown-it nie robi linków z niebezpiecznych schematów (np. javascript:).
+_MARKDOWN = MarkdownIt("commonmark", {"html": False}).enable(["table", "strikethrough"])
 
 
 def link(id: int) -> str:
@@ -234,12 +241,23 @@ class Bramka:
             meta = {}
             for i in range(0, len(ids), MAKS_IDS):
                 meta.update(self.skrzynka.metadane(ids[i:i + MAKS_IDS]))
-            linie = [f"Zarchiwizowane w tym przebiegu ({len(ids)}):", ""]
+            naglowek = f"Zarchiwizowane w tym przebiegu ({len(ids)}):"
+            linie = [naglowek, ""]
+            # Nadawcy i tematy pochodzą z cudzych maili: do HTML idą zescapowane, nie przez markdown,
+            # żeby nie dało się nimi wstawić linku ani formatowania.
+            pozycje = []
             for i in ids:
                 m = meta.get(i)
                 opis = f"{m.od} | {m.temat}" if m else "(nie znaleziono)"
                 linie.append(f"- {opis}\n  {link(i)}")
+                pozycje.append(f'<li>{html.escape(opis)}<br><a href="{link(i)}">{link(i)}</a></li>')
             linie += ["", f"Przebieg: {przebieg}"]
+            strona = (
+                '<!DOCTYPE html>\n<html><head><meta charset="utf-8"></head><body>\n'
+                + _MARKDOWN.render(tresc)
+                + f"<hr>\n<p>{html.escape(naglowek)}</p>\n<ul>\n" + "\n".join(pozycje) + "\n</ul>\n"
+                + f"<p>Przebieg: {html.escape(przebieg)}</p>\n</body></html>\n"
+            )
 
             wiadomosc = EmailMessage()
             wiadomosc["From"] = f"Bramka poczty <{self.adres}>"
@@ -248,7 +266,9 @@ class Bramka:
             wiadomosc["Date"] = format_datetime(datetime.now(timezone.utc))
             message_id = make_msgid(domain="bramka-poczty.local")
             wiadomosc["Message-ID"] = message_id
+            # Dwie wersje (multipart/alternative): Gmail pokazuje HTML, zwykły tekst zostaje dla innych klientów.
             wiadomosc.set_content(tresc.rstrip() + "\n\n---\n" + "\n".join(linie) + "\n")
+            wiadomosc.add_alternative(strona, subtype="html")
             id = self.skrzynka.wstaw(wiadomosc.as_bytes(), message_id)
             self.dziennik.zapisz(przebieg, "wstaw_podsumowanie", {**parametry, "zarchiwizowanych": len(ids)}, mail_id=id)
             return {"id": str(id) if id is not None else None, "zarchiwizowanych": len(ids)}

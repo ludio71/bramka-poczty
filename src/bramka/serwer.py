@@ -83,8 +83,8 @@ def zbuduj_mcp(bramka: Bramka) -> MCPServer:
     async def wstaw_podsumowanie(temat: str, tresc: str, ctx: Context) -> dict:
         """Wstawia do Odebranych jedno podsumowanie dla właściciela (bez wysyłania). Najwyżej 3 na przebieg.
 
-        `tresc` w Markdown, maks. 200 kB. Pod treścią bramka sama dopisze listę maili zarchiwizowanych
-        w tym przebiegu (nadawca, temat, link), więc nie musisz jej powtarzać. Wstawiaj na końcu przebiegu.
+        `tresc` w Markdown (CommonMark z tabelami), maks. 200 kB; bramka wstawia ją jako HTML i jako zwykły tekst.
+        Pod treścią bramka sama dopisze listę maili zarchiwizowanych w tym przebiegu (nadawca, temat, link), więc nie musisz jej powtarzać. Wstawiaj na końcu przebiegu.
         """
         return await _wywolaj(bramka.wstaw_podsumowanie, _przebieg(ctx), temat, tresc)
 
