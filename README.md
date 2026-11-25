@@ -60,7 +60,7 @@ docker run -d -p 8000:8000 -v /sciezka/na/dziennik:/data \
 
 Kontener działa jako użytkownik `568:568`, który musi mieć prawo zapisu w `/data`.
 
-Obraz buduje GitHub Actions po każdej zmianie w `main` (tag `main` i `sha-…`) i po tagu `v*` (tag z numerem wersji).
+Obraz buduje GitHub Actions po każdej zmianie w `main` (tag `main` i `sha-…`) i po tagu `v*` (tag z numerem wersji oraz `latest`). `latest` wskazuje więc ostatnią wydaną wersję, a nie każdą zmianę w `main`.
 
 ## Rozwój
 
