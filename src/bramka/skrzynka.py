@@ -131,6 +131,28 @@ class Gmail:
             wynik[id] = self._uid[id]
         return wynik
 
+    def _pobierz(self, k: IMAPClient, ids: list[int], pola: list[bytes]) -> dict[int, tuple[int, dict]]:
+        """FETCH pól dla maili o podanych X-GM-MSGID: {msgid: (uid, dane)}. Nieznalezione nie trafiają do wyniku.
+
+        UID z pamięci podręcznej bywa nieaktualny: mail przeniesiony do Kosza znika z folderu „Wszystkie”,
+        a po przywróceniu dostaje nowy UID. Dla maili, których FETCH nie zwrócił, wpis jest usuwany
+        i UID szukany od nowa (raz).
+        """
+        pola = [*pola, b"X-GM-MSGID"] if b"X-GM-MSGID" not in pola else pola
+        wynik: dict[int, tuple[int, dict]] = {}
+        brakujace = list(ids)
+        for proba in (1, 2):
+            uidy = self._uidy(k, brakujace)
+            odp = k.fetch(list(uidy.values()), pola) if uidy else {}
+            for uid, d in odp.items():
+                wynik[d[b"X-GM-MSGID"]] = (uid, d)
+            brakujace = [i for i in uidy if i not in wynik]
+            for i in brakujace:
+                self._uid.pop(i, None)
+            if not brakujace:
+                break
+        return wynik
+
     def _zapamietaj(self, k: IMAPClient, uidy: list[int]) -> dict[int, int]:
         """UID -> X-GM-MSGID, przy okazji uzupełnia pamięć podręczną."""
         if not uidy:
@@ -160,17 +182,14 @@ class Gmail:
 
     def metadane(self, ids):
         def f(k: IMAPClient):
-            uidy = self._uidy(k, ids)
-            if not uidy:
-                return {}
-            odp = k.fetch(
-                list(uidy.values()),
+            odp = self._pobierz(
+                k, ids,
                 [b"X-GM-MSGID", b"X-GM-THRID", b"X-GM-LABELS", b"FLAGS", b"RFC822.SIZE",
                  b"INTERNALDATE", b"BODYSTRUCTURE", POLA_NAGLOWKA],
             )
             maile: dict[int, Mail] = {}
             do_fragmentu: dict[str, list[tuple[int, tresc.Czesc]]] = {}
-            for uid, d in odp.items():
+            for uid, d in odp.values():
                 msgid = d[b"X-GM-MSGID"]
                 nagl = tresc.naglowki(_wartosc_body(d))
                 lista = tresc.czesci(d[b"BODYSTRUCTURE"])
@@ -202,17 +221,17 @@ class Gmail:
 
     def tresc(self, id):
         def f(k: IMAPClient):
-            uid = self._uidy(k, [id]).get(id)
-            if uid is None:
+            znaleziony = self._pobierz(k, [id], [b"BODYSTRUCTURE", POLA_NAGLOWKA]).get(id)
+            if znaleziony is None:
                 return None
-            d = k.fetch([uid], [b"BODYSTRUCTURE", POLA_NAGLOWKA])[uid]
+            uid, d = znaleziony
             nagl = tresc.naglowki(_wartosc_body(d))
             lista = tresc.czesci(d[b"BODYSTRUCTURE"])
             c = tresc.czesc_tekstowa(lista)
             tekst = ""
             if c:
                 klucz = f"BODY.PEEK[{c.numer}]<0.{TRESC_BAJTOW}>".encode()
-                d2 = k.fetch([uid], [klucz])[uid]
+                d2 = k.fetch([uid], [klucz]).get(uid, {})
                 tekst = tresc.dekoduj_czesc(_wartosc_body(d2), c)
                 if c.typ == "text/plain":
                     tekst = tresc.uporzadkuj_biale_znaki(tekst)
@@ -222,10 +241,10 @@ class Gmail:
 
     def watek(self, id):
         def f(k: IMAPClient):
-            uid = self._uidy(k, [id]).get(id)
-            if uid is None:
+            znaleziony = self._pobierz(k, [id], [b"X-GM-THRID"]).get(id)
+            if znaleziony is None:
                 return []
-            thrid = k.fetch([uid], [b"X-GM-THRID"])[uid][b"X-GM-THRID"]
+            thrid = znaleziony[1][b"X-GM-THRID"]
             uidy = sorted(k.search(["X-GM-THRID", thrid]))
             msgidy = self._zapamietaj(k, uidy)
             return [msgidy[u] for u in uidy if u in msgidy]
@@ -240,21 +259,15 @@ class Gmail:
 
     def etykiety_maili(self, ids):
         def f(k: IMAPClient):
-            uidy = self._uidy(k, ids)
-            if not uidy:
-                return {}
-            odp = k.fetch(list(uidy.values()), [b"X-GM-LABELS", b"X-GM-MSGID"])
-            return {d[b"X-GM-MSGID"]: {_tekst(e) for e in d.get(b"X-GM-LABELS", ())} for d in odp.values()}
+            odp = self._pobierz(k, ids, [b"X-GM-LABELS"])
+            return {i: {_tekst(e) for e in d.get(b"X-GM-LABELS", ())} for i, (_, d) in odp.items()}
 
         return self._wykonaj(f)
 
     def przeczytane(self, ids):
         def f(k: IMAPClient):
-            uidy = self._uidy(k, ids)
-            if not uidy:
-                return {}
-            odp = k.fetch(list(uidy.values()), [b"FLAGS", b"X-GM-MSGID"])
-            return {d[b"X-GM-MSGID"]: SEEN in d.get(b"FLAGS", ()) for d in odp.values()}
+            odp = self._pobierz(k, ids, [b"FLAGS"])
+            return {i: SEEN in d.get(b"FLAGS", ()) for i, (_, d) in odp.items()}
 
         return self._wykonaj(f)
 
